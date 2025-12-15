@@ -4,8 +4,8 @@ import React, { useState, useRef, useEffect } from "react";
 const A4_WIDTH = 794;
 const A4_HEIGHT = 1123;
 
-// --- Helper Component: Draggable & Resizable Box (Remains the same) ---
-function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabled }) {
+// --- Helper Component: Draggable & Resizable Box ---
+function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabled, hideBorder }) { // <-- Προσθήκη hideBorder
   // ... (Implementation remains the same)
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -51,13 +51,13 @@ function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabl
   }, [isDragging, isResizing, disabled, onUpdate]);
 
   const handleMouseDown = (e) => {
-    if (disabled || e.target.closest('.resize-handle')) return;
+    if (disabled || hideBorder || e.target.closest('.resize-handle')) return;
     setIsDragging(true);
     startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height };
   };
 
   const handleResizeStart = (e) => {
-    if (disabled) return;
+    if (disabled || hideBorder) return;
     e.stopPropagation();
     setIsResizing(true);
     startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height };
@@ -71,8 +71,9 @@ function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabl
         top: y,
         width,
         height,
-        border: disabled ? 'none' : '2px dashed #999',
-        cursor: disabled ? 'default' : 'move',
+        // 🌟 ΔΙΟΡΘΩΣΗ: Κρύβουμε το border αν γίνεται export
+        border: (disabled || hideBorder) ? 'none' : '2px dashed #999',
+        cursor: (disabled || hideBorder) ? 'default' : 'move',
         userSelect: 'none',
         zIndex: 10,
         backgroundColor: 'transparent'
@@ -80,7 +81,8 @@ function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabl
       onMouseDown={handleMouseDown}
     >
       {children}
-      {!disabled && (
+      {/* Κρύβουμε το handle αν είναι disabled ή hideBorder */}
+      {!disabled && !hideBorder && (
         <div
           className="resize-handle"
           onMouseDown={handleResizeStart}
@@ -112,7 +114,6 @@ export default function A4WordComposer() {
   
   const [isDragging, setIsDragging] = useState(false); 
   
-  // 🌟 ΝΕΑ STATES: Αποθήκευση Ονομάτων Αρχείων
   const [templateFileName, setTemplateFileName] = useState("Επιλέξτε αρχείο...");
   const [docFileName, setDocFileName] = useState("Επιλέξτε αρχείο...");
 
@@ -150,8 +151,6 @@ export default function A4WordComposer() {
   function handleTemplate(fileOrEvent) {
     const file = fileOrEvent.target?.files?.[0] || fileOrEvent;
     if (!file || !file.type.startsWith("image/")) return;
-    
-    // 🌟 Ενημέρωση: Αποθήκευση ονόματος
     setTemplateFileName(file.name);
     
     const reader = new FileReader();
@@ -166,8 +165,6 @@ export default function A4WordComposer() {
     }
     const file = fileOrEvent.target?.files?.[0] || fileOrEvent;
     if (!file) return;
-    
-    // 🌟 Ενημέρωση: Αποθήκευση ονόματος
     setDocFileName(file.name);
     
     try {
@@ -179,7 +176,6 @@ export default function A4WordComposer() {
     }
   }
 
-  // 🌟 Ενημέρωση: Καθαρισμός ονομάτων αρχείων
   function handleReset() {
     setTemplate(null);
     setDocHtml("");
@@ -280,7 +276,7 @@ export default function A4WordComposer() {
     setPages(newPages);
   }, [docHtml, fontSize, box.width, box.height]);
 
-  // 🚀 ΝΕΑ ΥΛΟΠΟΙΗΣΗ: Εξαγωγή σε PDF
+  // 🚀 ΕΝΗΜΕΡΩΜΕΝΗ ΥΛΟΠΟΙΗΣΗ: Εξαγωγή σε PDF
   async function exportPDF() {
     if (!window.html2canvas || !window.jspdf) {
         console.error("Required PDF/Canvas libraries not loaded.");
@@ -290,31 +286,35 @@ export default function A4WordComposer() {
 
     setIsExporting(true);
     
-    const { jsPDF } = window.jspdf;
-    // A4 διαστάσεις σε μονάδες jsPDF (mm)
-    const pdfWidth = 210;
-    const pdfHeight = 297;
-    
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    pdf.deletePage(1); 
-
     try {
-        // Λαμβάνουμε όλα τα στοιχεία σελίδας με την κλάση 'a4-page'
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        pdf.deletePage(1); 
+
+        // A4 διαστάσεις σε μονάδες mm
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+        
+        // Καθορίζουμε την αναλογία (794px/210mm = ~3.78)
+        const scaleFactor = A4_WIDTH / pdfWidth; 
+
         const pageElements = document.querySelectorAll('.a4-page');
 
         for (let i = 0; i < pageElements.length; i++) {
             const pageEl = pageElements[i];
 
-            // Μετατροπή της σελίδας σε Canvas (εικόνα)
+            // Χρησιμοποιούμε το scrollY:0 για να αποφύγουμε artifacts
             const canvas = await window.html2canvas(pageEl, {
                 scale: 2, 
                 logging: false,
-                useCORS: true
+                useCORS: true,
+                scrollY: 0, // Σημαντικό για αξιοπιστία
             });
 
-            const imgData = canvas.toDataURL('image/jpeg', 1.0);
-
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
             pdf.addPage(pdfWidth, pdfHeight); 
+            
+            // Προσθήκη εικόνας, καλύπτοντας όλη τη σελίδα A4
             pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
         }
 
@@ -327,7 +327,7 @@ export default function A4WordComposer() {
     }
   }
 
-  // 🚀 ΝΕΑ ΥΛΟΠΟΙΗΣΗ: Εξαγωγή σε εικόνα (PNG/JPEG)
+  // 🚀 ΕΝΗΜΕΡΩΜΕΝΗ ΥΛΟΠΟΙΗΣΗ: Εξαγωγή σε εικόνα (PNG/JPEG)
   async function exportImages(type) {
     if (!window.html2canvas) {
         console.error("HTML2Canvas library not loaded.");
@@ -344,16 +344,15 @@ export default function A4WordComposer() {
         for (let i = 0; i < pageElements.length; i++) {
             const pageEl = pageElements[i];
 
-            // Μετατροπή της σελίδας σε Canvas
             const canvas = await window.html2canvas(pageEl, {
                 scale: 2, 
                 logging: false,
-                useCORS: true
+                useCORS: true,
+                scrollY: 0,
             });
 
             const imgData = canvas.toDataURL(mimeType, 1.0);
             
-            // Δημιουργία link για download
             const link = document.createElement('a');
             link.href = imgData;
             link.download = `page_${i + 1}.${type}`;
@@ -458,10 +457,9 @@ export default function A4WordComposer() {
         </button>
       </div>
 
-      {/* Input Fields και Font Size Control */}
+      {/* Input Fields και Font Size Control (Remains the same) */}
       <div className="flex gap-5 flex-wrap mb-6 bg-white p-4 rounded shadow">
         
-        {/* Template File */}
         <label className="flex flex-col gap-1 text-sm font-medium w-48 bg-gray-50 p-2 rounded border border-gray-300">
           <span className="text-gray-700">📄 Template (JPEG/PNG):</span>
           <span className={`text-xs truncate ${templateFileName === "Επιλέξτε αρχείο..." ? 'text-gray-500' : 'text-green-700 font-semibold'}`}>
@@ -476,7 +474,6 @@ export default function A4WordComposer() {
           />
         </label>
         
-        {/* DOCX File */}
         <label className="flex flex-col gap-1 text-sm font-medium w-48 bg-gray-50 p-2 rounded border border-gray-300">
           <span className="text-gray-700">📝 Word (.docx):</span>
           <span className={`text-xs truncate ${docFileName === "Επιλέξτε αρχείο..." ? 'text-gray-500' : 'text-green-700 font-semibold'}`}>
@@ -491,7 +488,6 @@ export default function A4WordComposer() {
           />
         </label>
         
-        {/* Font Size Control (Remains the same) */}
         <label className="flex flex-col gap-1 text-sm font-medium w-48">
           🔠 Μέγεθος κειμένου: {fontSize}px
           <input 
@@ -511,7 +507,7 @@ export default function A4WordComposer() {
             <div
                 key={i}
                 id={`page-${i}`}
-                className="relative bg-white shadow-2xl a4-page" // ⬅️ Απαραίτητη κλάση για την εξαγωγή
+                className="relative bg-white shadow-2xl a4-page" 
                 style={{
                     width: A4_WIDTH,
                     height: A4_HEIGHT,
@@ -535,7 +531,8 @@ export default function A4WordComposer() {
                     width={box.width} 
                     height={box.height} 
                     onUpdate={setBox}
-                    disabled={i > 0} // Μόνο η πρώτη σελίδα είναι draggable/resizable
+                    disabled={i > 0} 
+                    hideBorder={isExporting} // 🌟 ΔΙΟΡΘΩΣΗ: Κρύβουμε το border κατά την εξαγωγή
                 >
                     <div
                         style={{
