@@ -178,8 +178,11 @@ export default function A4WordComposer() {
     setDocHtml("");
     setPages([]);
     setFontSize(16);
+    
+    // ✅ ΔΙΟΡΘΩΣΗ: Καθαρισμός των ονομάτων αρχείων
     setTemplateFileName("Επιλέξτε αρχείο...");
     setDocFileName("Επιλέξτε αρχείο...");
+    
     if (templateInputRef.current) templateInputRef.current.value = null;
     if (docInputRef.current) docInputRef.current.value = null;
   }
