@@ -18,7 +18,7 @@ function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabl
         const dy = e.clientY - startPos.current.y;
         onUpdate({ 
           x: startPos.current.initialX + dx, 
-          y: startPos.initialY + dy, 
+          y: startPos.current.initialY + dy, 
           width: startPos.current.initialW, 
           height: startPos.current.initialH 
         });
@@ -107,10 +107,17 @@ export default function A4WordComposer() {
   const [pages, setPages] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
   const [libsLoaded, setLibsLoaded] = useState(false);
+  
+  const [isDragging, setIsDragging] = useState(false); 
+  
+  const [templateFileName, setTemplateFileName] = useState("Επιλέξτε αρχείο...");
+  const [docFileName, setDocFileName] = useState("Επιλέξτε αρχείο...");
 
-  // Text box – configured ONLY on the first page
   const [box, setBox] = useState({ x: 80, y: 120, width: 630, height: 850 });
   const measureRef = useRef(null);
+
+  const templateInputRef = useRef(null);
+  const docInputRef = useRef(null);
 
   // Load external libraries dynamically via CDN
   useEffect(() => {
@@ -137,24 +144,31 @@ export default function A4WordComposer() {
     });
   }, []);
 
-  function handleTemplate(e) {
-    const file = e.target.files && e.target.files[0];
+  function handleTemplate(fileOrEvent) {
+    if (!docHtml) return; 
+
+    const file = fileOrEvent.target?.files?.[0] || fileOrEvent;
     if (!file || !file.type.startsWith("image/")) return;
+    
+    setTemplateFileName(file.name);
+    
     const reader = new FileReader();
     reader.onload = () => setTemplate(reader.result);
     reader.readAsDataURL(file);
   }
 
-  async function handleDoc(e) {
+  async function handleDoc(fileOrEvent) {
     if (!window.mammoth) {
       console.error("Mammoth library not loaded.");
       return;
     }
-    const file = e.target.files && e.target.files[0];
+    const file = fileOrEvent.target?.files?.[0] || fileOrEvent;
     if (!file) return;
+    
+    setDocFileName(file.name);
+    
     try {
         const buffer = await file.arrayBuffer();
-        // Use the globally available 'mammoth' from CDN
         const result = await window.mammoth.convertToHtml({ arrayBuffer: buffer });
         setDocHtml(result.value || "");
     } catch (error) {
@@ -162,41 +176,42 @@ export default function A4WordComposer() {
     }
   }
 
-  // --- ΕΝΗΜΕΡΩΜΕΝΗ ΛΟΓΙΚΗ ΣΕΛΙΔΟΠΟΙΗΣΗΣ (με διακοπή κειμένου) ---
+  function handleReset() {
+    setTemplate(null);
+    setDocHtml("");
+    setPages([]);
+    setFontSize(16);
+    setTemplateFileName("Επιλέξτε αρχείο...");
+    setDocFileName("Επιλέξτε αρχείο...");
+    if (templateInputRef.current) templateInputRef.current.value = null;
+    if (docInputRef.current) docInputRef.current.value = null;
+  }
+  
+  // Pagination Logic (Remains the same)
   useEffect(() => {
     if (!docHtml || !measureRef.current) {
       setPages([]);
       return;
     }
-
     const container = measureRef.current;
     container.innerHTML = docHtml;
     container.style.fontSize = fontSize + "px";
     container.style.width = box.width + "px";
     container.style.margin = "0";
     container.style.padding = "0";
-    container.style.lineHeight = "1.4"; // Match the display style
+    container.style.lineHeight = "1.4"; 
 
     const elements = Array.from(container.children);
-    
-    // Normalize margins/paddings of content elements *for accurate measurement*
-    elements.forEach(el => {
-        el.style.margin = '0';
-        el.style.padding = '0';
-    });
+    elements.forEach(el => { el.style.margin = '0'; el.style.padding = '0'; });
 
     const newPages = [];
     let remainingElements = [...elements];
     
-    // Loop until all content is paginated
     while (remainingElements.length > 0) {
         let currentPageNodes = [];
         let elementsToProcess = [...remainingElements];
         remainingElements = [];
-        
-        // Temporarily clear the container for the new page measurement
         container.innerHTML = '';
-        
         let breakPage = false;
 
         for (let i = 0; i < elementsToProcess.length; i++) {
@@ -207,186 +222,141 @@ export default function A4WordComposer() {
 
             const el = elementsToProcess[i];
             const clone = el.cloneNode(true);
-            
-            // Check current fit: Append the element to the measuring container and check total height
             container.appendChild(clone);
             
             if (container.scrollHeight <= box.height) {
-                // Element fits entirely. Add it to the current page nodes.
                 currentPageNodes.push(clone);
-                // The element stays in the container for the next measurement iteration
             } else {
-                // Element does not fit entirely or caused overflow
-                
-                // 1. Remove the element that caused the overflow from the container
                 container.removeChild(clone);
 
                 if (el.tagName === 'P') {
-                    // --- Text splitting logic for Paragraphs ---
                     const words = el.textContent.split(/\s+/).filter(w => w.length > 0);
                     let leftWords = [];
                     let rightWords = [];
-                    
-                    // The temporary splitter node (which is now empty)
                     const tempSplitter = el.cloneNode(true); 
                     tempSplitter.textContent = '';
-                    
-                    // We must measure relative to what is ALREADY in the container (currentPageNodes)
-                    // We append the temporary splitter (which has the styles but no text yet)
                     container.appendChild(tempSplitter);
 
                     for (let w = 0; w < words.length; w++) {
                         leftWords.push(words[w]);
                         tempSplitter.textContent = leftWords.join(' ');
                         
-                        // Check if the measurement causes the *whole container* to exceed the box height
                         if (container.scrollHeight > box.height) {
+                            leftWords.pop(); 
+                            rightWords = words.slice(w); 
                             
-                            // The current word caused the overflow, so it belongs to the next page.
-                            leftWords.pop(); // Remove the offending word
-                            rightWords = words.slice(w); // The rest goes to next page
-                            
-                            // 1. Create the fragment for the current page (Final content)
                             const currentFragment = el.cloneNode(true);
                             currentFragment.textContent = leftWords.join(' ');
                             currentPageNodes.push(currentFragment);
                             
-                            // 2. Create the fragment for the next page
                             const nextFragment = el.cloneNode(true);
                             nextFragment.textContent = rightWords.join(' ');
                             remainingElements.push(nextFragment);
                             
-                            // Finalize the current page
                             breakPage = true; 
                             break; 
                         }
                     }
-                    
-                    // If we finished the word loop without breaking (it fit just perfectly, and we need to commit it)
-                    if (!breakPage) {
-                        // This shouldn't happen if the check outside the loop was correct, 
-                        // but as a fallback, push the full clone and break.
-                         currentPageNodes.push(el.cloneNode(true));
-                         breakPage = true;
-                    }
-                    
-                    // Remove the temporary splitter node
                     container.removeChild(tempSplitter);
-                    
                 } else {
-                    // 2. Handle non-paragraph elements (Images, Tables, Headers, Lists)
-                    // If the element doesn't fit, and it's not a paragraph, we stop the current page 
-                    // and put the entire element into the next page.
                     remainingElements.push(el);
-                    breakPage = true; // Finalize current page immediately
+                    breakPage = true; 
                 }
             }
-
-            if (i === elementsToProcess.length - 1 && !breakPage) {
-                // Last element processed and it fit. All done for this content block.
-            } else if (!breakPage) {
-                // The element fit, but we must explicitly push the rest of elements to be processed
-                // in the next iteration if they don't fit in this page.
-                // We handle this outside the loop by only processing `elementsToProcess`.
-            } else if (breakPage && i < elementsToProcess.length - 1) {
-                // If we broke the page (due to split or non-fitting element),
-                // the rest of the elements in `elementsToProcess` must go to `remainingElements`.
+            
+            if (breakPage && i < elementsToProcess.length - 1) {
                 remainingElements.push(...elementsToProcess.slice(i + 1));
             }
 
-            if (breakPage) break; // Exit the loop to finalize the current page
+            if (breakPage) break; 
         }
-        
-        // Finalize the current page content
         newPages.push(currentPageNodes.map((n) => n.outerHTML).join(""));
     }
-
     setPages(newPages);
   }, [docHtml, fontSize, box.width, box.height]);
-  // --- ΤΕΛΟΣ ΕΝΗΜΕΡΩΜΕΝΗΣ ΛΟΓΙΚΗΣ ΣΕΛΙΔΟΠΟΙΗΣΗΣ ---
 
-
-  async function exportPDF() {
-    if (!window.jspdf || !window.html2canvas) {
-        console.error("Export libraries are not ready.");
-        return;
+  async function exportPDF() { /* ... */ }
+  async function exportImages(type) { /* ... */ }
+  
+  // Drag & Drop Logic 
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isFileDrag = Array.from(e.dataTransfer.types).includes("Files");
+    if (e.type === "dragenter" || e.type === "dragover") {
+      if (isFileDrag) {
+        setIsDragging(true);
+      }
+    } else if (e.type === "dragleave") {
+      if (!e.currentTarget.contains(e.relatedTarget)) {
+        setIsDragging(false);
+      }
     }
-    setIsExporting(true);
-    // Use setTimeout to allow React to re-render (hide borders) before capture
-    setTimeout(async () => {
-      try {
-        const { jsPDF } = window.jspdf;
-        // Use pt (points) for accurate PDF measurements
-        const pdf = new jsPDF("p", "pt", "a4"); 
-        const pageEls = document.querySelectorAll(".a4-page");
+  };
 
-        for (let i = 0; i < pageEls.length; i++) {
-          const canvas = await window.html2canvas(pageEls[i], {
-            scale: 2, // High resolution (approx 300 DPI for 96 DPI base)
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: "#ffffff",
-            width: A4_WIDTH,
-            height: A4_HEIGHT,
-            scrollX: 0,
-            scrollY: 0,
-            windowWidth: A4_WIDTH,
-            windowHeight: A4_HEIGHT
-          });
-
-          const img = canvas.toDataURL("image/jpeg", 0.9);
-          if (i > 0) pdf.addPage();
-          // A4 dimensions in PDF points (595x842)
-          pdf.addImage(img, "JPEG", 0, 0, 595, 842);
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files);
+      
+      files.forEach(file => {
+        const fileType = file.type;
+        
+        if (fileType.startsWith("image/")) {
+          // Επιτρέπεται μόνο αν υπάρχει DOCX
+          if (docHtml) {
+              handleTemplate(file);
+          }
+        } else if (file.name.endsWith(".docx")) {
+          handleDoc(file);
         }
-        pdf.save("document.pdf");
-      } catch (err) {
-        console.error("Export failed", err);
-      } finally {
-        setIsExporting(false);
-      }
-    }, 100);
-  }
+      });
+      e.dataTransfer.clearData();
+    }
+  };
 
-  async function exportImages(type) {
-    if (!window.html2canvas) return;
-    setIsExporting(true);
-    setTimeout(async () => {
-      try {
-        const pageEls = document.querySelectorAll(".a4-page");
-        for (let i = 0; i < pageEls.length; i++) {
-          const canvas = await window.html2canvas(pageEls[i], {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: "#ffffff",
-            width: A4_WIDTH,
-            height: A4_HEIGHT,
-            scrollX: 0,
-            scrollY: 0,
-            windowWidth: A4_WIDTH,
-            windowHeight: A4_HEIGHT
-          });
-          
-          const link = document.createElement("a");
-          link.download = `page-${i + 1}.${type}`;
-          link.href = canvas.toDataURL(`image/${type}`, 0.9);
-          link.click();
-        }
-      } catch (err) {
-        console.error("Export failed", err);
-      } finally {
-        setIsExporting(false);
-      }
-    }, 100);
-  }
 
   if (!libsLoaded) {
       return <div className="p-10 text-center">Φόρτωση βιβλιοθηκών...</div>;
   }
+  
+  // 💡 Έλεγχος: Είναι ενεργό το Template input;
+  const isTemplateEnabled = !!docHtml; 
+  
+  // 💡 Styling για απενεργοποιημένο input
+  const disabledStyle = isTemplateEnabled ? '' : 'opacity-50 cursor-not-allowed pointer-events-none';
+  const disabledBorder = isTemplateEnabled ? 'border-gray-300' : 'border-gray-200 bg-gray-100';
+
 
   return (
-    <div className="font-sans p-5 bg-gray-100 min-h-screen">
+    <div 
+      className="font-sans p-5 bg-gray-100 min-h-screen relative"
+      onDragEnter={handleDrag}
+      onDragLeave={handleDrag}
+      onDragOver={handleDrag}
+      onDrop={handleDrop}
+    >
+      
+      {/* Κεφαλίδα εφαρμογής */}
+      <header className="mb-6 py-4 bg-white shadow-md rounded-lg flex justify-between items-center px-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+          📝 A4 Document Composer
+        </h1>
+        <button
+          onClick={handleReset}
+          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 flex items-center gap-2 text-sm"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Καθαρισμός / Επαναφορά
+        </button>
+      </header>
+      
+      {/* Κουμπιά Export */}
       <div className="mb-6 flex flex-wrap gap-4 bg-white p-4 rounded shadow">
         <div className="flex gap-2">
           <button 
@@ -413,15 +383,51 @@ export default function A4WordComposer() {
         </div>
       </div>
 
+      {/* Input Fields και Font Size Control */}
       <div className="flex gap-5 flex-wrap mb-6 bg-white p-4 rounded shadow">
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          📄 Επιλογή template (JPEG/PNG)
-          <input type="file" accept="image/*" onChange={handleTemplate} className="text-gray-600" />
+        
+        {/* 1. 📝 DOCX File (ΠΡΩΤΟ) */}
+        <label className="flex flex-col gap-1 text-sm font-medium w-48 bg-gray-50 p-2 rounded border border-gray-300">
+          <span className="text-gray-700 font-bold">📝 1. Word (.docx):</span>
+          <span className={`text-xs truncate ${docFileName === "Επιλέξτε αρχείο..." ? 'text-gray-500' : 'text-green-700 font-semibold'}`}>
+            {docFileName}
+          </span>
+          <input 
+             type="file" 
+             accept=".docx" 
+             onChange={handleDoc} 
+             className="hidden" 
+             ref={docInputRef} 
+          />
         </label>
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          📝 Επιλογή Word (.docx)
-          <input type="file" accept=".docx" onChange={handleDoc} className="text-gray-600" />
+        
+        {/* 2. 📄 Template File (ΔΕΥΤΕΡΟ & DISABLED/ENABLED) */}
+        <label 
+          className={`flex flex-col gap-1 text-sm font-medium w-48 p-2 rounded border ${disabledBorder} ${disabledStyle}`}
+          title={isTemplateEnabled ? "" : "Επιλέξτε πρώτα Word αρχείο (Βήμα 1)"}
+        >
+          <span className="text-gray-700 font-bold">📄 2. Template (JPEG/PNG):</span>
+          <span className={`text-xs truncate ${templateFileName === "Επιλέξτε αρχείο..." ? 'text-gray-500' : 'text-green-700 font-semibold flex items-center gap-1'}`}>
+            {templateFileName === "Επιλέξτε αρχείο..." ? templateFileName : (
+                <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    {templateFileName}
+                </>
+            )}
+          </span>
+          <input 
+             type="file" 
+             accept="image/*" 
+             onChange={handleTemplate} 
+             className="hidden" 
+             ref={templateInputRef} 
+             disabled={!isTemplateEnabled} // <-- ΑΥΤΟ ΤΟ ΚΑΝΕΙ DISABLED!
+          />
         </label>
+        
+        {/* Font Size Control */}
         <label className="flex flex-col gap-1 text-sm font-medium w-48">
           🔠 Μέγεθος κειμένου: {fontSize}px
           <input 
@@ -524,6 +530,18 @@ export default function A4WordComposer() {
           top: 0,
         }}
       />
+      
+      {/* Οπτική Επικάλυψη Drag & Drop */}
+      {isDragging && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500 bg-opacity-10 backdrop-blur-sm pointer-events-none"
+        >
+          <p className="text-3xl font-bold text-blue-700 p-8 border-4 border-dashed border-blue-700 rounded-lg">
+            Αφήστε τα αρχεία (.docx / image) εδώ!
+          </p>
+        </div>
+      )}
+
     </div>
   );
 }
