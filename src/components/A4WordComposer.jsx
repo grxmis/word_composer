@@ -1,15 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
-// A4 size at 96 DPI
 const A4_WIDTH = 794;
 const A4_HEIGHT = 1123;
 
-// --- Helper Component: Draggable & Resizable Box ---
+// --- Helper: Draggable & Resizable Box ---
 function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabled, hideBorder }) { 
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const startPos = useRef({ x: 0, y: 0, initialX: 0, initialY: 0, initialW: 0, initialH: 0 });
-
     const isInteractionEnabled = !disabled && !hideBorder;
 
     useEffect(() => {
@@ -17,324 +15,190 @@ function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabl
             if (!isInteractionEnabled) return;
             const dx = e.clientX - startPos.current.x;
             const dy = e.clientY - startPos.current.y;
-
             if (isDragging) {
-                onUpdate({ 
-                    x: startPos.current.initialX + dx, 
-                    y: startPos.current.initialY + dy, 
-                    width: startPos.current.initialW, 
-                    height: startPos.current.initialH 
-                });
+                onUpdate({ x: startPos.current.initialX + dx, y: startPos.current.initialY + dy, width: startPos.current.initialW, height: startPos.current.initialH });
             } else if (isResizing) {
-                onUpdate({ 
-                    x: startPos.current.initialX, 
-                    y: startPos.current.initialY, 
-                    width: Math.max(100, startPos.current.initialW + dx), 
-                    height: Math.max(100, startPos.current.initialH + dy) 
-                });
+                onUpdate({ x: startPos.current.initialX, y: startPos.current.initialY, width: Math.max(100, startPos.current.initialW + dx), height: Math.max(100, startPos.current.initialH + dy) });
             }
         };
-
-        const handleMouseUp = () => {
-            setIsDragging(false);
-            setIsResizing(false);
-        };
-
+        const handleMouseUp = () => { setIsDragging(false); setIsResizing(false); };
         if (isDragging || isResizing) {
             window.addEventListener('mousemove', handleMouseMove);
             window.addEventListener('mouseup', handleMouseUp);
         }
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
+        return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
     }, [isDragging, isResizing, isInteractionEnabled, onUpdate, x, y, width, height]);
 
-    const handleMouseDown = (e) => {
-        if (!isInteractionEnabled || e.target.closest('.resize-handle')) return;
-        setIsDragging(true);
-        startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height };
-    };
-
-    const handleResizeStart = (e) => {
-        if (!isInteractionEnabled) return;
-        e.stopPropagation();
-        setIsResizing(true);
-        startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height };
-    };
-
-    const shouldHideBorders = disabled || hideBorder;
-
     return (
-        <div
-            style={{
-                position: 'absolute',
-                left: x,
-                top: y,
-                width,
-                height,
-                border: shouldHideBorders ? 'none' : '2px dashed #999',
-                cursor: shouldHideBorders ? 'default' : 'move',
-                userSelect: 'none',
-                zIndex: 10,
-                backgroundColor: 'transparent'
-            }}
-            onMouseDown={handleMouseDown}
-        >
+        <div style={{ position: 'absolute', left: x, top: y, width, height, border: (disabled || hideBorder) ? 'none' : '2px dashed #999', cursor: (disabled || hideBorder) ? 'default' : 'move', zIndex: 10 }}
+             onMouseDown={(e) => { if (!isInteractionEnabled || e.target.closest('.resize-handle')) return; setIsDragging(true); startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height }; }}>
             {children}
-            {!shouldHideBorders && (
-                <div
-                    className="resize-handle"
-                    onMouseDown={handleResizeStart}
-                    style={{
-                        position: 'absolute',
-                        bottom: -5,
-                        right: -5,
-                        width: 15,
-                        height: 15,
-                        background: '#3b82f6',
-                        cursor: 'nwse-resize',
-                        borderRadius: '50%'
-                    }}
-                />
+            {isInteractionEnabled && (
+                <div className="resize-handle" style={{ position: 'absolute', bottom: -5, right: -5, width: 15, height: 15, background: '#3b82f6', cursor: 'nwse-resize', borderRadius: '50%' }}
+                     onMouseDown={(e) => { e.stopPropagation(); setIsResizing(true); startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height }; }} />
             )}
         </div>
     );
 }
 
-// --- Main Component ---
 export default function A4WordComposer() {
     const [template, setTemplate] = useState(null);
     const [docHtml, setDocHtml] = useState("");
     const [fontSize, setFontSize] = useState(16);
     const [pages, setPages] = useState([]);
     const [isExporting, setIsExporting] = useState(false);
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [libsLoaded, setLibsLoaded] = useState(false);
-    const [isDragging, setIsDragging] = useState(false); 
-    const [templateFileName, setTemplateFileName] = useState("Επιλέξτε αρχείο...");
-    const [docFileName, setDocFileName] = useState("Επιλέξτε αρχείο...");
+    const [templateFileName, setTemplateFileName] = useState("Επιλέξτε εικόνα...");
+    const [docFileName, setDocFileName] = useState("Επιλέξτε .docx...");
     const [box, setBox] = useState({ x: 80, y: 120, width: 630, height: 850 });
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
     const measureRef = useRef(null);
-    const templateInputRef = useRef(null);
-    const docInputRef = useRef(null);
 
-    // Load External Libs
+    // Load Scripts & Resize Listener
     useEffect(() => {
         const scripts = [
             "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
         ];
-        let loadedCount = 0;
+        let loaded = 0;
         scripts.forEach(src => {
-            const script = document.createElement("script");
-            script.src = src;
-            script.onload = () => {
-                loadedCount++;
-                if (loadedCount === scripts.length) setLibsLoaded(true);
-            };
-            document.body.appendChild(script);
+            const s = document.createElement("script"); s.src = src;
+            s.onload = () => { loaded++; if (loaded === scripts.length) setLibsLoaded(true); };
+            document.body.appendChild(s);
         });
         const handleResize = () => setIsMobile(window.innerWidth < 768);
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Helper: Calculate pages without rendering to UI
-    const calculatePageCount = useCallback((htmlContent, currentFontSize, currentBox) => {
-        if (!htmlContent || !measureRef.current) return 0;
-        const container = measureRef.current;
-        container.innerHTML = htmlContent;
-        container.style.fontSize = currentFontSize + "px";
-        container.style.width = currentBox.width + "px";
-        container.style.lineHeight = "1.4";
-        const elements = Array.from(container.children);
-        let count = 0;
-        let remaining = [...elements];
-        while (remaining.length > 0) {
-            count++;
-            container.innerHTML = '';
-            let breakPage = false;
-            for (let i = 0; i < remaining.length; i++) {
-                const clone = remaining[i].cloneNode(true);
-                container.appendChild(clone);
-                if (container.scrollHeight > currentBox.height) {
-                    remaining = remaining.slice(i);
-                    breakPage = true;
-                    break;
-                }
-            }
-            if (!breakPage) remaining = [];
+    // File Handlers
+    const processFile = async (file) => {
+        if (file.type.startsWith("image/")) {
+            setTemplateFileName(file.name);
+            const r = new FileReader(); r.onload = () => setTemplate(r.result); r.readAsDataURL(file);
+        } else if (file.name.endsWith(".docx")) {
+            setDocFileName(file.name);
+            const buf = await file.arrayBuffer();
+            const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+            setDocHtml(res.value);
         }
-        return count;
-    }, []);
+    };
 
-    // Pagination Effect
+    // Drag & Drop Handlers
+    const handleDragOver = (e) => { e.preventDefault(); setIsDraggingFile(true); };
+    const handleDragLeave = () => setIsDraggingFile(false);
+    const handleDrop = (e) => {
+        e.preventDefault(); setIsDraggingFile(false);
+        const file = e.dataTransfer.files[0];
+        if (file) processFile(file);
+    };
+
+    // AI Logic (1-Page Fit)
+    const optimizeFontSize = () => {
+        let low = 10, high = 40, best = 16;
+        const container = measureRef.current;
+        for (let i = 0; i < 7; i++) {
+            let mid = (low + high) / 2;
+            container.innerHTML = docHtml; container.style.fontSize = mid + "px"; container.style.width = box.width + "px";
+            if (container.scrollHeight <= box.height) { best = mid; low = mid; } else { high = mid; }
+        }
+        setFontSize(Math.floor(best));
+    };
+
+    // Pagination Logic
     useEffect(() => {
         if (!docHtml || !measureRef.current) { setPages([]); return; }
         const container = measureRef.current;
-        container.innerHTML = docHtml;
-        container.style.fontSize = fontSize + "px";
-        container.style.width = box.width + "px";
+        container.innerHTML = docHtml; container.style.fontSize = fontSize + "px"; container.style.width = box.width + "px";
         const elements = Array.from(container.children);
-        let newPages = [];
-        let remaining = [...elements];
-        while (remaining.length > 0) {
-            let pageNodes = [];
-            container.innerHTML = '';
-            let breakIdx = remaining.length;
-            for (let i = 0; i < remaining.length; i++) {
-                const clone = remaining[i].cloneNode(true);
-                container.appendChild(clone);
-                if (container.scrollHeight <= box.height) {
-                    pageNodes.push(clone.outerHTML);
-                } else {
-                    breakIdx = i;
-                    break;
-                }
+        let newPages = [], currentRemaining = [...elements];
+        while (currentRemaining.length > 0) {
+            let pageNodes = []; container.innerHTML = '';
+            let breakIdx = currentRemaining.length;
+            for (let i = 0; i < currentRemaining.length; i++) {
+                container.appendChild(currentRemaining[i].cloneNode(true));
+                if (container.scrollHeight <= box.height) pageNodes.push(currentRemaining[i].outerHTML);
+                else { breakIdx = i; break; }
             }
             newPages.push(pageNodes.join(""));
-            remaining = remaining.slice(breakIdx);
-            if (breakIdx === 0 && remaining.length > 0) break; // prevent infinite loop
+            currentRemaining = currentRemaining.slice(breakIdx);
+            if (breakIdx === 0) break;
         }
         setPages(newPages);
     }, [docHtml, fontSize, box.width, box.height]);
 
-    // AI Optimize Font Size
-    async function optimizeFontSize(target = 1) {
-        let low = 10, high = 40, best = fontSize;
-        for (let i = 0; i < 6; i++) {
-            let mid = (low + high) / 2;
-            if (calculatePageCount(docHtml, mid, box) <= target) {
-                best = mid; low = mid;
-            } else { high = mid; }
-        }
-        setFontSize(Math.floor(best));
-    }
-
-    // PDF Core Logic (Shared for Export & Preview)
-    async function generatePDFBlob() {
+    // PDF Logic
+    const getPDF = async () => {
         setIsExporting(true);
-        await new Promise(r => setTimeout(r, 100));
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('p', 'mm', 'a4');
         const pageEls = document.querySelectorAll('.a4-page');
         for (let i = 0; i < pageEls.length; i++) {
             const canvas = await window.html2canvas(pageEls[i], { scale: 2 });
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
             if (i > 0) pdf.addPage();
-            pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+            pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
         }
         setIsExporting(false);
-        return pdf.output('blob');
-    }
-
-    const handlePreview = async () => {
-        const blob = await generatePDFBlob();
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
+        return pdf;
     };
 
-    const handleDownloadPDF = async () => {
-        const blob = await generatePDFBlob();
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = "document.pdf";
-        link.click();
-    };
-
-    const handleFile = (e, type) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (type === 'img') {
-            setTemplateFileName(file.name);
-            const r = new FileReader(); r.onload = () => setTemplate(r.result); r.readAsDataURL(file);
-        } else {
-            setDocFileName(file.name);
-            file.arrayBuffer().then(buf => window.mammoth.convertToHtml({arrayBuffer: buf}))
-                .then(res => setDocHtml(res.value));
-        }
-    };
-
-    if (!libsLoaded) return <div className="p-10 text-center font-bold">Φόρτωση βιβλιοθηκών...</div>;
+    if (!libsLoaded) return <div className="p-10 text-center">Φόρτωση βιβλιοθηκών...</div>;
 
     return (
-        <div className="p-4 bg-gray-100 min-h-screen">
-            <style>
-                {`
-                @media (max-width: 768px) {
-                    .a4-page-scaled {
-                        transform: scale(0.45); 
-                        transform-origin: top center; 
-                        margin-bottom: -550px; 
-                        box-shadow: none !important;
-                    }
-                }
-                `}
-            </style>
-
-            <header className="flex flex-col md:flex-row justify-between items-center bg-white p-4 shadow rounded-lg mb-4 gap-4">
-                <h1 className="text-xl font-bold italic">📝 Document Composer</h1>
-                <div className="flex gap-2">
-                    <button onClick={() => setPages([])} className="bg-red-500 text-white px-3 py-1 rounded text-sm">Reset</button>
-                </div>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div className="bg-white p-4 rounded shadow flex flex-col gap-2">
-                    <span className="text-xs font-bold uppercase">1. Αρχεία</span>
-                    <label className="border p-2 rounded text-xs cursor-pointer truncate bg-gray-50">
-                        🖼️ {templateFileName}
-                        <input type="file" className="hidden" onChange={(e)=>handleFile(e, 'img')} accept="image/*" />
-                    </label>
-                    <label className="border p-2 rounded text-xs cursor-pointer truncate bg-gray-50">
-                        📄 {docFileName}
-                        <input type="file" className="hidden" onChange={(e)=>handleFile(e, 'doc')} accept=".docx" />
-                    </label>
-                </div>
-
-                <div className="bg-white p-4 rounded shadow flex flex-col gap-2">
-                    <span className="text-xs font-bold uppercase">2. Ρυθμίσεις</span>
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm">Μέγεθος: {fontSize}px</span>
-                        <button onClick={()=>optimizeFontSize(1)} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded border border-purple-300 font-bold">✨ Auto-fit (1 Σελ.)</button>
-                    </div>
-                    <input type="range" min="10" max="40" value={fontSize} onChange={(e)=>setFontSize(Number(e.target.value))} />
-                </div>
-
-                <div className="bg-white p-4 rounded shadow flex flex-col gap-2">
-                    <span className="text-xs font-bold uppercase">3. Εξαγωγή</span>
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={handlePreview} disabled={isExporting || pages.length===0} className="bg-gray-800 text-white py-2 rounded text-sm font-bold">👁️ Preview</button>
-                        <button onClick={handleDownloadPDF} disabled={isExporting || pages.length===0} className="bg-blue-600 text-white py-2 rounded text-sm font-bold">📥 PDF</button>
-                    </div>
-                </div>
-            </div>
-
-            {isMobile && (
-                <div className="bg-blue-50 p-4 rounded mb-4 text-xs grid grid-cols-2 gap-2 shadow-inner">
-                    <label>X: <input type="number" value={box.x} onChange={e=>setBox({...box, x:Number(e.target.value)})} className="w-full border p-1"/></label>
-                    <label>Y: <input type="number" value={box.y} onChange={e=>setBox({...box, y:Number(e.target.value)})} className="w-full border p-1"/></label>
-                    <label>W: <input type="number" value={box.width} onChange={e=>setBox({...box, width:Number(e.target.value)})} className="w-full border p-1"/></label>
-                    <label>H: <input type="number" value={box.height} onChange={e=>setBox({...box, height:Number(e.target.value)})} className="w-full border p-1"/></label>
+        <div className="p-4 bg-gray-100 min-h-screen relative" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+            <style>{`@media (max-width:768px){.a4-page-scaled{transform:scale(0.45);transform-origin:top center;margin-bottom:-550px;box-shadow:none!important;}}`}</style>
+            
+            {/* Overlay για Drag & Drop */}
+            {isDraggingFile && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500 bg-opacity-20 border-4 border-dashed border-blue-500 pointer-events-none">
+                    <h2 className="text-2xl font-bold text-blue-700 bg-white p-6 rounded-xl shadow-xl">Ρίξτε το αρχείο εδώ ✨</h2>
                 </div>
             )}
 
-            <div className="flex flex-col items-center gap-8 py-4">
+            <header className="flex justify-between items-center bg-white p-4 shadow-sm rounded-xl mb-4">
+                <h1 className="text-xl font-black text-gray-800">A4 COMPOSER <span className="text-blue-500 text-xs">PRO</span></h1>
+                <div className="flex gap-2">
+                    <button onClick={async() => { const pdf = await getPDF(); window.open(URL.createObjectURL(pdf.output('blob')), '_blank'); }} disabled={pages.length===0 || isExporting} className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-black transition">👁️ Preview</button>
+                    <button onClick={async() => { const pdf = await getPDF(); pdf.save('document.pdf'); }} disabled={pages.length===0 || isExporting} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700 transition">📥 Download</button>
+                </div>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Αρχεία (Drag & Drop)</p>
+                    <div className="flex flex-col gap-2">
+                        <input type="file" id="t-in" hidden onChange={(e)=>processFile(e.target.files[0])} accept="image/*"/><label htmlFor="t-in" className="border-2 border-dashed p-2 rounded-lg text-xs cursor-pointer truncate hover:bg-gray-50 block">🖼️ {templateFileName}</label>
+                        <input type="file" id="d-in" hidden onChange={(e)=>processFile(e.target.files[0])} accept=".docx"/><label htmlFor="d-in" className="border-2 border-dashed p-2 rounded-lg text-xs cursor-pointer truncate hover:bg-gray-50 block">📄 {docFileName}</label>
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
+                    <div className="flex justify-between items-center"><p className="text-[10px] font-bold text-gray-400 uppercase">Κείμενο</p><button onClick={optimizeFontSize} className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold hover:bg-purple-700">✨ AI AUTO-FIT</button></div>
+                    <div className="text-center font-bold text-lg">{fontSize}px</div>
+                    <input type="range" min="10" max="40" value={fontSize} onChange={(e)=>setFontSize(Number(e.target.value))} className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Περιοχή (X, Y, W, H)</p>
+                    <div className="grid grid-cols-4 gap-1">
+                        {['x','y','width','height'].map(k => <input key={k} type="number" value={Math.round(box[k])} onChange={e=>setBox({...box,[k]:Number(e.target.value)})} className="border rounded p-1 text-xs text-center font-mono"/>)}
+                    </div>
+                    <p className="text-[9px] text-gray-400 mt-2">* Σύρετε το πλαίσιο στην 1η σελίδα (Desktop)</p>
+                </div>
+            </div>
+
+            <div className="flex flex-col items-center gap-10 pb-20">
                 {pages.map((html, i) => (
-                    <div key={i} className={`relative bg-white shadow-2xl overflow-hidden a4-page ${isMobile ? 'a4-page-scaled' : ''}`} 
-                         style={{ width: A4_WIDTH, height: A4_HEIGHT }}>
-                        {template && <img src={template} className="absolute inset-0 w-full h-full object-cover pointer-events-none" alt="bg" />}
+                    <div key={i} className={`relative bg-white shadow-2xl overflow-hidden a4-page ${isMobile ? 'a4-page-scaled' : ''}`} style={{ width: A4_WIDTH, height: A4_HEIGHT }}>
+                        {template && <img src={template} className="absolute inset-0 w-full h-full object-cover pointer-events-none" />}
                         <DraggableResizableBox x={box.x} y={box.y} width={box.width} height={box.height} onUpdate={setBox} disabled={i>0 || isMobile} hideBorder={isExporting}>
                             <div className="w-full h-full overflow-hidden" style={{ fontSize: `${fontSize}px`, lineHeight: "1.4" }} dangerouslySetInnerHTML={{ __html: html }} />
                         </DraggableResizableBox>
-                        <div className="absolute bottom-2 right-4 text-[10px] text-gray-400">Σελίδα {i+1}</div>
+                        <div className="absolute bottom-4 left-0 w-full text-center text-[10px] text-gray-300 font-mono">- PAGE {i+1} -</div>
                     </div>
                 ))}
             </div>
-
             <div ref={measureRef} style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', top: 0 }} />
         </div>
     );
