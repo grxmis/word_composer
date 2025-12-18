@@ -1,229 +1,271 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 const A4_WIDTH = 794;
 const A4_HEIGHT = 1123;
 
-// --- Helper: Draggable & Resizable Box ---
-function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabled, hideBorder }) { 
+// -------------------- Draggable & Resizable Box --------------------
+function DraggableResizableBox({ x, y, width, height, onUpdate, children, disabled, hideBorder }) {
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
-    const startPos = useRef({ x: 0, y: 0, initialX: 0, initialY: 0, initialW: 0, initialH: 0 });
-    
-    // Η αλληλεπίδραση επιτρέπεται μόνο αν δεν είμαστε σε φάση εξαγωγής και δεν είναι απενεργοποιημένο το box
-    const isInteractionEnabled = !disabled && !hideBorder;
+    const start = useRef({});
+
+    const enabled = !disabled && !hideBorder;
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (!isInteractionEnabled) return;
-            const dx = e.clientX - startPos.current.x;
-            const dy = e.clientY - startPos.current.y;
+        const move = (e) => {
+            const dx = e.clientX - start.current.x;
+            const dy = e.clientY - start.current.y;
+
             if (isDragging) {
-                onUpdate({ x: startPos.current.initialX + dx, y: startPos.current.initialY + dy, width: startPos.current.initialW, height: startPos.current.initialH });
-            } else if (isResizing) {
-                onUpdate({ x: startPos.current.initialX, y: startPos.current.initialY, width: Math.max(100, startPos.current.initialW + dx), height: Math.max(100, startPos.current.initialH + dy) });
+                onUpdate({
+                    x: start.current.ix + dx,
+                    y: start.current.iy + dy,
+                    width: start.current.w,
+                    height: start.current.h
+                });
+            }
+            if (isResizing) {
+                onUpdate({
+                    x: start.current.ix,
+                    y: start.current.iy,
+                    width: Math.max(100, start.current.w + dx),
+                    height: Math.max(100, start.current.h + dy)
+                });
             }
         };
-        const handleMouseUp = () => { setIsDragging(false); setIsResizing(false); };
+        const up = () => {
+            setIsDragging(false);
+            setIsResizing(false);
+        };
         if (isDragging || isResizing) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", up);
         }
-        return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-    }, [isDragging, isResizing, isInteractionEnabled, onUpdate, x, y, width, height]);
+        return () => {
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mouseup", up);
+        };
+    }, [isDragging, isResizing, onUpdate]);
 
     return (
-        <div style={{ 
-                position: 'absolute', 
-                left: x, 
-                top: y, 
-                width, 
-                height, 
-                // ΕΔΩ ΕΙΝΑΙ Η ΔΙΟΡΘΩΣΗ: Αν hideBorder = true, το border γίνεται none
-                border: hideBorder ? 'none' : '2px dashed #999', 
-                cursor: isInteractionEnabled ? 'move' : 'default', 
-                zIndex: 10 
-             }}
-             onMouseDown={(e) => { if (!isInteractionEnabled || e.target.closest('.resize-handle')) return; setIsDragging(true); startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height }; }}>
+        <div
+            style={{
+                position: "absolute",
+                left: x,
+                top: y,
+                width,
+                height,
+                border: hideBorder ? "none" : "2px dashed #999",
+                cursor: enabled ? "move" : "default",
+                zIndex: 10
+            }}
+            onMouseDown={(e) => {
+                if (!enabled || e.target.closest(".resize-handle")) return;
+                setIsDragging(true);
+                start.current = { x: e.clientX, y: e.clientY, ix: x, iy: y, w: width, h: height };
+            }}
+        >
             {children}
-            {/* Οι λαβές αλλαγής μεγέθους κρύβονται επίσης κατά την εξαγωγή */}
-            {isInteractionEnabled && (
-                <div className="resize-handle" style={{ position: 'absolute', bottom: -5, right: -5, width: 15, height: 15, background: '#3b82f6', cursor: 'nwse-resize', borderRadius: '50%' }}
-                     onMouseDown={(e) => { e.stopPropagation(); setIsResizing(true); startPos.current = { x: e.clientX, y: e.clientY, initialX: x, initialY: y, initialW: width, initialH: height }; }} />
+            {enabled && (
+                <div
+                    className="resize-handle"
+                    style={{
+                        position: "absolute",
+                        right: -6,
+                        bottom: -6,
+                        width: 16,
+                        height: 16,
+                        background: "#3b82f6",
+                        borderRadius: "50%",
+                        cursor: "nwse-resize"
+                    }}
+                    onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        start.current = { x: e.clientX, y: e.clientY, ix: x, iy: y, w: width, h: height };
+                    }}
+                />
             )}
         </div>
     );
 }
 
+// -------------------- MAIN COMPONENT --------------------
 export default function A4WordComposer() {
     const [template, setTemplate] = useState(null);
     const [docHtml, setDocHtml] = useState("");
     const [fontSize, setFontSize] = useState(16);
     const [pages, setPages] = useState([]);
+    const [box, setBox] = useState({ x: 80, y: 120, width: 630, height: 850 });
     const [isExporting, setIsExporting] = useState(false);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [libsLoaded, setLibsLoaded] = useState(false);
     const [templateFileName, setTemplateFileName] = useState("Επιλέξτε εικόνα...");
     const [docFileName, setDocFileName] = useState("Επιλέξτε .docx...");
-    const [box, setBox] = useState({ x: 80, y: 120, width: 630, height: 850 });
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
     const measureRef = useRef(null);
 
+    // -------------------- LOAD LIBS --------------------
     useEffect(() => {
-        const scripts = [
+        const libs = [
             "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
         ];
         let loaded = 0;
-        scripts.forEach(src => {
-            const s = document.createElement("script"); s.src = src;
-            s.onload = () => { loaded++; if (loaded === scripts.length) setLibsLoaded(true); };
+        libs.forEach(src => {
+            const s = document.createElement("script");
+            s.src = src;
+            s.onload = () => { loaded++; if (loaded === libs.length) setLibsLoaded(true); };
             document.body.appendChild(s);
         });
-        const handleResize = () => setIsMobile(window.innerWidth < 768);
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        const resize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener("resize", resize);
+        return () => window.removeEventListener("resize", resize);
     }, []);
 
-    const handleReset = () => {
-        setTemplate(null); setDocHtml(""); setPages([]); setFontSize(16);
-        setTemplateFileName("Επιλέξτε εικόνα..."); setDocFileName("Επιλέξτε .docx...");
-        setBox({ x: 80, y: 120, width: 630, height: 850 });
+    // -------------------- FILE HANDLERS (FIX) --------------------
+    const handleTemplateFile = (file) => {
+        if (!file || !file.type.startsWith("image/")) return;
+        setTemplateFileName(file.name);
+        const r = new FileReader();
+        r.onload = () => setTemplate(r.result);
+        r.readAsDataURL(file);
     };
 
-    const processFile = async (file) => {
-        if (!file) return;
-        if (file.type.startsWith("image/")) {
-            setTemplateFileName(file.name);
-            const r = new FileReader(); r.onload = () => setTemplate(r.result); r.readAsDataURL(file);
-        } else if (file.name.endsWith(".docx")) {
-            setDocFileName(file.name);
-            const buf = await file.arrayBuffer();
-            const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
-            setDocHtml(res.value);
-        }
+    const handleDocFile = async (file) => {
+        if (!file || !file.name.endsWith(".docx")) return;
+        setDocFileName(file.name);
+        const buf = await file.arrayBuffer();
+        const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+        setDocHtml(res.value);
     };
 
-    const handleDragOver = (e) => { e.preventDefault(); setIsDraggingFile(true); };
-    const handleDragLeave = () => setIsDraggingFile(false);
+    // -------------------- DRAG & DROP --------------------
     const handleDrop = (e) => {
-        e.preventDefault(); setIsDraggingFile(false);
+        e.preventDefault();
+        setIsDraggingFile(false);
         const file = e.dataTransfer.files[0];
-        if (file) processFile(file);
+        if (!file) return;
+        if (file.type.startsWith("image/")) handleTemplateFile(file);
+        else if (file.name.endsWith(".docx")) handleDocFile(file);
     };
 
-    const optimizeFontSize = () => {
-        let low = 10, high = 40, best = 16;
-        const container = measureRef.current;
-        for (let i = 0; i < 7; i++) {
-            let mid = (low + high) / 2;
-            container.innerHTML = docHtml; container.style.fontSize = mid + "px"; container.style.width = box.width + "px";
-            if (container.scrollHeight <= box.height) { best = mid; low = mid; } else { high = mid; }
-        }
-        setFontSize(Math.floor(best));
-    };
-
+    // -------------------- PAGINATION --------------------
     useEffect(() => {
-        if (!docHtml || !measureRef.current) { setPages([]); return; }
-        const container = measureRef.current;
-        container.innerHTML = docHtml; container.style.fontSize = fontSize + "px"; container.style.width = box.width + "px";
-        const elements = Array.from(container.children);
-        let newPages = [], currentRemaining = [...elements];
-        while (currentRemaining.length > 0) {
-            let pageNodes = []; container.innerHTML = '';
-            let breakIdx = currentRemaining.length;
-            for (let i = 0; i < currentRemaining.length; i++) {
-                container.appendChild(currentRemaining[i].cloneNode(true));
-                if (container.scrollHeight <= box.height) pageNodes.push(currentRemaining[i].outerHTML);
-                else { breakIdx = i; break; }
-            }
-            newPages.push(pageNodes.join(""));
-            currentRemaining = currentRemaining.slice(breakIdx);
-            if (breakIdx === 0) break;
+        if (!docHtml || !measureRef.current) {
+            setPages([]);
+            return;
         }
-        setPages(newPages);
-    }, [docHtml, fontSize, box.width, box.height]);
+        const c = measureRef.current;
+        c.innerHTML = docHtml;
+        c.style.fontSize = fontSize + "px";
+        c.style.width = box.width + "px";
 
+        const nodes = Array.from(c.children);
+        let pagesArr = [];
+        let rest = [...nodes];
+
+        while (rest.length) {
+            c.innerHTML = "";
+            let page = [];
+            let i = 0;
+            for (; i < rest.length; i++) {
+                c.appendChild(rest[i].cloneNode(true));
+                if (c.scrollHeight <= box.height) page.push(rest[i].outerHTML);
+                else break;
+            }
+            pagesArr.push(page.join(""));
+            rest = rest.slice(i);
+            if (i === 0) break;
+        }
+        setPages(pagesArr);
+    }, [docHtml, fontSize, box]);
+
+    // -------------------- PDF --------------------
     const getPDF = async () => {
         setIsExporting(true);
-        // Χρειάζεται ένα μικρό delay για να προλάβει το UI να κρύψει τις διακεκομμένες γραμμές
-        await new Promise(r => setTimeout(r, 200)); 
+        await new Promise(r => setTimeout(r, 200));
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pageEls = document.querySelectorAll('.a4-page');
-        for (let i = 0; i < pageEls.length; i++) {
-            const canvas = await window.html2canvas(pageEls[i], { scale: 2 });
+        const pdf = new jsPDF("p", "mm", "a4");
+        const els = document.querySelectorAll(".a4-page");
+        for (let i = 0; i < els.length; i++) {
+            const canvas = await window.html2canvas(els[i], { scale: 2 });
             if (i > 0) pdf.addPage();
-            pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+            pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, 210, 297);
         }
         setIsExporting(false);
         return pdf;
     };
 
-    if (!libsLoaded) return <div className="p-10 text-center">Φόρτωση βιβλιοθηκών...</div>;
+    if (!libsLoaded) return <div className="p-10 text-center">Φόρτωση…</div>;
 
+    // -------------------- UI --------------------
     return (
-        <div className="p-4 bg-gray-100 min-h-screen relative" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-            <style>{`@media (max-width:768px){.a4-page-scaled{transform:scale(0.45);transform-origin:top center;margin-bottom:-550px;box-shadow:none!important;}}`}</style>
-            
+        <div
+            className="p-4 bg-gray-100 min-h-screen"
+            onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+            onDragLeave={() => setIsDraggingFile(false)}
+            onDrop={handleDrop}
+        >
+
             {isDraggingFile && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500 bg-opacity-20 border-4 border-dashed border-blue-500 pointer-events-none">
-                    <h2 className="text-2xl font-bold text-blue-700 bg-white p-6 rounded-xl shadow-xl">Ρίξτε το αρχείο εδώ ✨</h2>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-500 bg-opacity-20 border-4 border-dashed border-blue-500">
+                    <h2 className="text-2xl font-bold bg-white p-6 rounded-xl">Ρίξτε το αρχείο εδώ</h2>
                 </div>
             )}
 
-            <header className="flex justify-between items-center bg-white p-4 shadow-sm rounded-xl mb-4">
-                <h1 className="text-xl font-black text-gray-800">A4 COMPOSER <span className="text-blue-500 text-xs">PRO</span></h1>
-                <div className="flex gap-2">
-                    <button onClick={handleReset} className="bg-red-50 text-red-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-100 transition">Reset</button>
-                    <button onClick={async() => { const pdf = await getPDF(); window.open(URL.createObjectURL(pdf.output('blob')), '_blank'); }} disabled={pages.length===0 || isExporting} className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-black transition">👁️ Preview</button>
-                    <button onClick={async() => { const pdf = await getPDF(); pdf.save('document.pdf'); }} disabled={pages.length===0 || isExporting} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700 transition">📥 Download</button>
-                </div>
+            <header className="bg-white p-4 rounded-xl shadow mb-4 flex gap-2">
+                <input type="file" hidden id="img" accept="image/*" onChange={e => handleTemplateFile(e.target.files[0])} />
+                <label htmlFor="img" className="border-2 border-dashed p-2 rounded cursor-pointer text-xs">
+                    🖼️ {templateFileName}
+                </label>
+
+                <input type="file" hidden id="doc" accept=".docx" onChange={e => handleDocFile(e.target.files[0])} />
+                <label htmlFor="doc" className="border-2 border-dashed p-2 rounded cursor-pointer text-xs">
+                    📄 {docFileName}
+                </label>
+
+                <button
+                    onClick={async () => (await getPDF()).save("document.pdf")}
+                    disabled={!pages.length || isExporting}
+                    className="ml-auto bg-blue-600 text-white px-4 py-2 rounded"
+                >
+                    Download PDF
+                </button>
             </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Αρχεία (Drag & Drop)</p>
-                    <div className="flex flex-col gap-2">
-                        <input type="file" id="t-in" hidden onChange={(e)=>processFile(e.target.files[0])} accept="image/*"/><label htmlFor="t-in" className="border-2 border-dashed p-2 rounded-lg text-xs cursor-pointer truncate hover:bg-gray-50 block">🖼️ {templateFileName}</label>
-                        <input type="file" id="d-in" hidden onChange={(e)=>processFile(e.target.files[0])} accept=".docx"/><label htmlFor="d-in" className="border-2 border-dashed p-2 rounded-lg text-xs cursor-pointer truncate hover:bg-gray-50 block">📄 {docFileName}</label>
-                    </div>
-                </div>
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-                    <div className="flex justify-between items-center"><p className="text-[10px] font-bold text-gray-400 uppercase">Κείμενο</p><button onClick={optimizeFontSize} className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold hover:bg-purple-700">✨ AI AUTO-FIT</button></div>
-                    <div className="text-center font-bold text-lg">{fontSize}px</div>
-                    <input type="range" min="10" max="40" value={fontSize} onChange={(e)=>setFontSize(Number(e.target.value))} className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
-                </div>
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Περιοχή (X, Y, W, H)</p>
-                    <div className="grid grid-cols-4 gap-1">
-                        {['x','y','width','height'].map(k => <input key={k} type="number" value={Math.round(box[k])} onChange={e=>setBox({...box,[k]:Number(e.target.value)})} className="border rounded p-1 text-xs text-center font-mono"/>)}
-                    </div>
-                </div>
-            </div>
-
-            <div className="flex flex-col items-center gap-10 pb-20">
+            <div className="flex flex-col items-center gap-10">
                 {pages.map((html, i) => (
-                    <div key={i} className={`relative bg-white shadow-2xl overflow-hidden a4-page ${isMobile ? 'a4-page-scaled' : ''}`} style={{ width: A4_WIDTH, height: A4_HEIGHT }}>
-                        {template && <img src={template} className="absolute inset-0 w-full h-full object-cover pointer-events-none" alt="" />}
-                        <DraggableResizableBox 
-                            x={box.x} 
-                            y={box.y} 
-                            width={box.width} 
-                            height={box.height} 
-                            onUpdate={setBox} 
-                            disabled={i>0 || isMobile} 
-                            // Περνάμε το state εξαγωγής
-                            hideBorder={isExporting} 
+                    <div
+                        key={i}
+                        className="relative bg-white shadow-2xl a4-page"
+                        style={{ width: A4_WIDTH, height: A4_HEIGHT }}
+                    >
+                        {template && (
+                            <img src={template} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                        )}
+
+                        <DraggableResizableBox
+                            x={box.x}
+                            y={box.y}
+                            width={box.width}
+                            height={box.height}
+                            onUpdate={setBox}
+                            disabled={i > 0 || isMobile}
+                            hideBorder={isExporting}
                         >
-                            <div className="w-full h-full overflow-hidden" style={{ fontSize: `${fontSize}px`, lineHeight: "1.4" }} dangerouslySetInnerHTML={{ __html: html }} />
+                            <div
+                                style={{ fontSize, lineHeight: 1.4 }}
+                                dangerouslySetInnerHTML={{ __html: html }}
+                            />
                         </DraggableResizableBox>
-                        <div className="absolute bottom-4 left-0 w-full text-center text-[10px] text-gray-300 font-mono">- PAGE {i+1} -</div>
                     </div>
                 ))}
             </div>
-            <div ref={measureRef} style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', top: 0 }} />
+
+            <div ref={measureRef} style={{ position: "absolute", visibility: "hidden" }} />
         </div>
     );
 }
